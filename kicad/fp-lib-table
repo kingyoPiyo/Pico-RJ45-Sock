@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name "rj45-sock")(type "KiCad")(uri "${KIPRJMOD}/rj45-sock.pretty")(options "")(descr ""))
+)
