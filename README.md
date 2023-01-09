@@ -6,8 +6,8 @@ RJ45 connector for Raspberry Pi Pico
 
 10BASE-T communication using Raspberry Pi Pico's PIO and software stack.
 
-![](img/board_f.png)
-![](img/board_b.png)
+<img src="img/board_f.png" width="500">  
+<img src="img/board_b.png" width="500">  
 
 ## Reference
 * Pico DVI Sock https://github.com/Wren6991/Pico-DVI-Sock
