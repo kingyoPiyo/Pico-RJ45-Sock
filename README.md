@@ -19,6 +19,22 @@ See also : [Pico-10BASE-T](https://github.com/kingyoPiyo/Pico-10BASE-T "Pico-10B
 | ---- | ---- |
 | [Hello World](firmware/hello_world/ "hello_world") | ARP, UDP, ICMP Test.<br>Change *system.h* for connection settings.|
 
+## Hello World
+```
+### pico-sdk install ###
+sudo apt install cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib build-essential
+git clone https://github.com/raspberrypi/pico-sdk
+cd pico-sdk
+git submodule update --init
+
+### Hello world Compile ###
+git clone https://github.com/kingyopiyo/Pico-RJ45-Sock
+cd Pico-RJ45-Sock/firmware/hello_world
+mkdir build
+cd build
+cmake ..
+make
+```
 
 ## Reference
 * Pico DVI Sock https://github.com/Wren6991/Pico-DVI-Sock
