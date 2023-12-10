@@ -3,6 +3,7 @@
 * Date     : 2022/08/22
 * Design   : kingyo
 ********************************************************/
+#include <stdio.h>
 #include "pico/stdlib.h"
 #include "hardware/vreg.h"
 #include "hardware/irq.h"
