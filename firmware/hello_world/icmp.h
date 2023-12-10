@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#ifndef CRC_DMA_EN
+#define CRC_DMA_EN 1
+#endif
 
 #define DEF_ICMP_BUF_SIZE        (1530) // 適当
 
