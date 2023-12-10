@@ -13,13 +13,7 @@
 #include "des_10base_t.pio.h"
 
 
-// UART Debug
-#define UART_EBG_EN             (1)             // 有効にするとちょい重たい
-
-
 // Define
-#define DEF_10BASET_FULL_ENABLE                 // Enable 10BASE-T Full Duplex
-
 #define HW_PINNUM_RXP           (17)            // Ethernet RX+
 #define HW_PINNUM_RXN           (16)            // Ethernet RX-
 #define HW_PINNUM_TXP           (15)            // Ethernet TX+
@@ -57,12 +51,17 @@ static const uint32_t pico_ip_addr = (DEF_SYS_PICO_IP1 << 24) +
                                      (DEF_SYS_PICO_IP3 << 8) +
                                      (DEF_SYS_PICO_IP4 << 0);
 
+static uint32_t time_nflp = 0;
+
 
 // Prototype
 static void __time_critical_func(_rx_isr)(void);
-static bool _send_nlp(void);
-static bool _send_flp(uint16_t data);
+static void _clear_nflp_timer_cnt(void);
+static bool _send_link_pulse(void);
+static void _send_nlp(void);
+static void _send_flp(uint16_t data);
 static bool _send_udp(void);
+
 
 // DMA
 static uint32_t dma_ch_10base_t;
@@ -83,11 +82,7 @@ void eth_init(void) {
 
     // Wait for Link up....
     for (uint32_t i = 0; i < 200;) {
-#ifdef DEF_10BASET_FULL_ENABLE
-        if (_send_flp(0x8602)) i++;   // 10BASE-T Full, ACK = 1
-#else
-        if (_send_nlp()) i++;
-#endif
+        if (_send_link_pulse()) i++;
     }
 
     // LED
@@ -130,11 +125,7 @@ void eth_main(void) {
     static uint32_t st_time = 0;
 
     // Link Pulse
-#ifdef DEF_10BASET_FULL_ENABLE
-        _send_flp(0x8602);
-#else
-        _send_nlp();
-#endif
+    _send_link_pulse();
 
     // RX Debug
     if (multicore_fifo_rvalid()) {
@@ -174,6 +165,7 @@ void eth_main(void) {
                         true                    // Start yet
                     );
                     dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
+                    _clear_nflp_timer_cnt();
 #if UART_EBG_EN
                     printf("[ARP] Who has %d.%d.%d.%d? ", (arp_target_ip >> 24), (arp_target_ip >> 16) & 0xFF, (arp_target_ip >> 8) & 0xFF, (arp_target_ip & 0xFF));
                     printf("Tell %d.%d.%d.%d \r\n", (arp_sender_ip >> 24), (arp_sender_ip >> 16) & 0xFF, (arp_sender_ip >> 8) & 0xFF, (arp_sender_ip & 0xFF));
@@ -201,6 +193,7 @@ void eth_main(void) {
                     true                    // Start yet
                 );
                 dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
+                _clear_nflp_timer_cnt();
 #if UART_EBG_EN
                 printf("[ICMP] src:%d.%d.%d.%d ", (ip_src_adr >> 24), (ip_src_adr >> 16) & 0xFF, (ip_src_adr >> 8) & 0xFF, (ip_src_adr & 0xFF));
                 printf("dst:%d.%d.%d.%d ", (ip_dst_adr >> 24), (ip_dst_adr >> 16) & 0xFF, (ip_dst_adr >> 8) & 0xFF, (ip_dst_adr & 0xFF));
@@ -221,47 +214,49 @@ void eth_main(void) {
     }
 }
 
+// NLP/FLP Interval timer clear
+void _clear_nflp_timer_cnt(void) {
+    time_nflp = time_us_32();
+}
 
-// NLP
-bool _send_nlp(void) {
+// Send Link Pulse
+bool _send_link_pulse(void) {
     uint32_t time_now = time_us_32();
-    static uint32_t time_nlp = 0;
     bool ret = false;
 
-    // Sending NLP Pulse (Pulse width = 100ns)
-    if ((time_now - time_nlp) > DEF_NFLP_INTERVAL_US) {
-        time_nlp = time_now;
-        ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
+    if ((time_now - time_nflp) > DEF_NFLP_INTERVAL_US) {
+        time_nflp = time_now;
         ret = true;
+
+#if DEF_10BASET_FULL_EN
+        _send_flp(0x8602);  // 10BASE-T Full, ACK = 1
+#else
+        _send_nlp();
+#endif
     }
 
     return ret;
 }
 
+// NLP
+void _send_nlp(void) {
+    ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
+}
+
 
 // FLP
-bool _send_flp(uint16_t data) {
-    uint32_t time_now = time_us_32();
-    static uint32_t time_flp = 0;
-    bool ret = false;
-
-    if ((time_now - time_flp) > DEF_NFLP_INTERVAL_US) {
-        time_flp = time_now;
-        for (int i = 0; i < 16; i++) {
-            // Clock
-            ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
-            sleep_us(62);
-            // Data
-            if ((data << i) & 0x8000) {
-                ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
-            }
-            sleep_us(62);
-        }
+void _send_flp(uint16_t data) {
+    for (int i = 0; i < 16; i++) {
+        // Clock
         ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
-        ret = true;
+        sleep_us(62);
+        // Data
+        if ((data << i) & 0x8000) {
+            ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
+        }
+        sleep_us(62);
     }
-
-    return ret;
+    ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
 }
 
 
@@ -282,6 +277,7 @@ bool _send_udp(void) {
         }
         ret = true;
         sleep_us(10);   // IFG
+        _clear_nflp_timer_cnt();
     }
 
     return ret;

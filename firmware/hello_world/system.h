@@ -1,6 +1,11 @@
 #ifndef __SYSTEM_H__
 #define __SYSTEM_H__
 
+// Compile switch
+#define UART_EBG_EN             (1)     // 有効にするとちょい重たい
+#define FCS_DMA_EN              (1)     // FCSの計算にDMAを使用する
+#define DEF_10BASET_FULL_EN     (1)     // Enable 10BASE-T Full Duplex
+
 
 // RasPico Network settings
 #define DEF_SYS_PICO_MAC        (0x123456789ABC)

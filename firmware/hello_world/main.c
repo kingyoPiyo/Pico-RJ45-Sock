@@ -27,9 +27,9 @@ static bool repeating_timer_callback(struct repeating_timer *t) {
 int main() {
     // Core voltage
     //vreg_set_voltage(VREG_VOLTAGE_1_10); // default
-    vreg_set_voltage(VREG_VOLTAGE_1_20); // Increase core voltage to stabilize overclocking
+    vreg_set_voltage(VREG_VOLTAGE_1_20);    // Increase core voltage to stabilize overclocking
     sleep_ms(10);
-    set_sys_clock_khz(240000, true);    // Over clock 240MHz
+    set_sys_clock_khz(240000, true);        // Over clock 240MHz
 
     stdio_init_all();
     eth_init();
