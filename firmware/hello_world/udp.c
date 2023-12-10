@@ -1,6 +1,10 @@
 #include "udp.h"
 #include "system.h"
 
+#if FCS_DMA_EN
+#include "hardware/dma.h"
+#endif
+
 // Manchester table
 // input 8bit, output 32bit, LSB first
 // b00 -> IDLE
@@ -26,8 +30,22 @@ const static uint32_t tbl_manchester[256] = {
     0x99996666, 0x99996669, 0x99996696, 0x99996699, 0x99996966, 0x99996969, 0x99996996, 0x99996999, 0x99999666, 0x99999669, 0x99999696, 0x99999699, 0x99999966, 0x99999969, 0x99999996, 0x99999999,
 };
 
-
+#if FCS_DMA_EN
+static uint32_t dma_ch;
+static dma_channel_config dma_conf;
+#else
 static uint32_t crc_table[256];
+static void _make_crc_table(void) {
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (uint32_t j = 0; j < 8; j++) {
+            c = c & 1 ? (c >> 1) ^ 0xEDB88320 : (c >> 1);
+        }
+        crc_table[i] = c;
+    }
+}
+#endif
+
 static uint8_t  data_8b[DEF_UDP_BUF_SIZE];
 static uint16_t ip_identifier = 0;
 static uint32_t ip_chk_sum1, ip_chk_sum2, ip_chk_sum3;
@@ -42,19 +60,13 @@ static const uint8_t   ip_type_of_service  = 0;
 static const uint16_t  ip_total_len        = 20 + DEF_UDP_LEN;
 
 
-static void _make_crc_table(void) {
-    for (uint32_t i = 0; i < 256; i++) {
-        uint32_t c = i;
-        for (uint32_t j = 0; j < 8; j++) {
-            c = c & 1 ? (c >> 1) ^ 0xEDB88320 : (c >> 1);
-        }
-        crc_table[i] = c;
-    }
-}
-
 
 void udp_init(void) {
+#if FCS_DMA_EN
+    dma_ch = dma_claim_unused_channel(true);
+#else
     _make_crc_table();
+#endif
 }
 
 
@@ -135,11 +147,33 @@ void udp_packet_gen_10base(uint32_t *buf, uint8_t *udp_payload) {
     //==========================================================================
     // FCS Calc
     //==========================================================================
+#if FCS_DMA_EN
+    dma_conf = dma_channel_get_default_config(dma_ch);
+    channel_config_set_transfer_data_size(&dma_conf, DMA_SIZE_8);
+    channel_config_set_read_increment(&dma_conf, true);
+    channel_config_set_write_increment(&dma_conf, false);
+    dma_channel_configure (
+        dma_ch,                 // Channel to be configured
+        &dma_conf,              // The configuration we just created
+        NULL,                   // Destination address
+        &data_8b[8],            // Source address
+        (idx-8),                // Number of transfers
+        false                   // Don't start yet
+    );
+    dma_sniffer_enable(dma_ch, 1, true);                    // CRC Mode = Calculate a CRC-32 (IEEE802.3 polynomial) with bit reversed data
+    hw_set_bits(&dma_hw->sniff_ctrl,
+               (DMA_SNIFF_CTRL_OUT_INV_BITS | DMA_SNIFF_CTRL_OUT_REV_BITS));
+    dma_hw->sniff_data = 0xffffffff;                        // Initialize CRC-32 seed value
+    dma_channel_set_read_addr(dma_ch, &data_8b[8], true);   // Start transfer
+    dma_channel_wait_for_finish_blocking(dma_ch);           // Wait for transfer
+    uint32_t crc = dma_hw->sniff_data;
+#else
     uint32_t crc = 0xffffffff;
     for (i = 8; i < idx; i++) {
         crc = (crc >> 8) ^ crc_table[(crc ^ data_8b[i]) & 0xFF];
     }
     crc ^= 0xffffffff;
+#endif
 
     data_8b[idx++] = (crc >>  0) & 0xFF;
     data_8b[idx++] = (crc >>  8) & 0xFF;

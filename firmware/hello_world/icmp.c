@@ -1,7 +1,7 @@
 #include "icmp.h"
 #include "system.h"
 
-#if CRC_DMA_EN
+#if FCS_DMA_EN
 #include "hardware/dma.h"
 #endif
 
@@ -31,7 +31,7 @@ const static uint32_t tbl_manchester[256] = {
 };
 
 
-#if CRC_DMA_EN
+#if FCS_DMA_EN
 static uint32_t dma_ch;
 static dma_channel_config dma_conf;
 #else
@@ -53,7 +53,7 @@ static uint8_t  data_8b[DEF_ICMP_BUF_SIZE];
 static const uint16_t  eth_type            = 0x0806; // ARP
 
 void icmp_init(void) {
-#if CRC_DMA_EN
+#if FCS_DMA_EN
     dma_ch = dma_claim_unused_channel(true);
 #else
     _make_crc_table();
@@ -181,7 +181,7 @@ uint32_t icmp_packet_gen_10base(uint32_t *buf, volatile uint32_t *in_data) {
     //==========================================================================
     // FCS Calc
     //==========================================================================
-#if CRC_DMA_EN
+#if FCS_DMA_EN
     dma_conf = dma_channel_get_default_config(dma_ch);
     channel_config_set_transfer_data_size(&dma_conf, DMA_SIZE_8);
     channel_config_set_read_increment(&dma_conf, true);
