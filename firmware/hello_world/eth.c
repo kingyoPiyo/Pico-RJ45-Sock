@@ -55,12 +55,14 @@ static uint32_t time_nflp = 0;
 
 
 // Prototype
-static void __time_critical_func(_rx_isr)(void);
+static void __time_critical_func(rx_func_core1)(void);
 static void _clear_nflp_timer_cnt(void);
 static bool _send_link_pulse(void);
 static void _send_nlp(void);
 static void _send_flp(uint16_t data);
 static bool _send_udp(void);
+static void _busy_led_update(bool led_on);
+static void _rx_packets_proc(void);
 
 
 // DMA
@@ -69,15 +71,12 @@ dma_channel_config dma_conf_10base_t;
 
 
 void eth_init(void) {
-    uint offset;
-    
     udp_init();
     arp_init();
     icmp_init();
 
-    // 10BASE-T Serializer PIO init
-    // Pin numbers must be sequential.
-    offset = pio_add_program(pio_serdes, &ser_10base_t_program);
+    // 10BASE-T Serializer PIO init. Pin numbers must be sequential.
+    uint offset = pio_add_program(pio_serdes, &ser_10base_t_program);
     ser_10base_t_program_init(pio_serdes, sm_tx, offset, HW_PINNUM_TXN);
 
     // Wait for Link up....
@@ -107,7 +106,7 @@ void eth_init(void) {
     gpio_init(HW_PINNUM_OUT1);  gpio_set_dir(HW_PINNUM_OUT1, GPIO_OUT);     // SMA Out for Debug
     offset = pio_add_program(pio_serdes, &des_10base_t_program);
     des_10base_t_program_init(pio_serdes, sm_rx, offset, HW_PINNUM_RXP, HW_PINNUM_OUT0);
-    multicore_launch_core1(_rx_isr);
+    multicore_launch_core1(rx_func_core1);
 
     // DMA
     dma_ch_10base_t = dma_claim_unused_channel(true);
@@ -121,142 +120,86 @@ void eth_init(void) {
 
 // RUN at Core0
 void eth_main(void) {    
-    static uint32_t sfd_cnt = 0;
-    static uint32_t st_time = 0;
+    _send_link_pulse();         // Link Pulse
+    _busy_led_update(false);    // Busy LED (RJ45)
 
-    // Link Pulse
-    _send_link_pulse();
-
-    // RX Debug
+    // RX Buffer check
     if (multicore_fifo_rvalid()) {
-        uint32_t pop_data = multicore_fifo_pop_blocking();  // index num
-        uint32_t slot = pop_data & 0x7; // 0 ~ 7
-        uint32_t size = pop_data >> 3;  // x 32bit
-        sfd_cnt++;
+        _rx_packets_proc();
+        _busy_led_update(true);
+    } else {
+        _send_udp();
+    }
+}
+
+
+// Analysis and processing of incoming packets
+void _rx_packets_proc(void) {
+    uint32_t pop_data = multicore_fifo_pop_blocking();  // index num
+    uint32_t slot = pop_data & 0x7; // 0 ~ 7
+    uint32_t size = pop_data >> 3;  // x 32bit
 
 #if UART_EBG_EN
-        printf("slot:%d, size:%d\r\n", slot, size);
+    printf("slot:%d, size:%d\r\n", slot, size);
 #endif
 
-        // Busy LED Pulse Period = 50ms(min)
-        if ((time_us_32() - st_time) > 50000) {
-            gpio_put(HW_PINNUM_LED_G, true);
-            st_time = time_us_32();
-        }
+    uint64_t eth_dst = ((((uint64_t)gsram[slot][0]) << 16) + (gsram[slot][1] >> 16)) & 0xFFFFFFFFFFFF;
+    uint64_t eth_src = ((((uint64_t)gsram[slot][1]) << 32) + (gsram[slot][2])) & 0xFFFFFFFFFFFF;
+    uint16_t eth_type = gsram[slot][3] >> 16;
+    uint32_t arp_sender_ip = gsram[slot][7];
+    uint32_t arp_target_ip = (gsram[slot][9] << 16) + (gsram[slot][10] >> 16);
+    uint16_t arp_opcode = gsram[slot][5] >> 16;
 
-        uint64_t eth_dst = ((((uint64_t)gsram[slot][0]) << 16) + (gsram[slot][1] >> 16)) & 0xFFFFFFFFFFFF;
-        uint64_t eth_src = ((((uint64_t)gsram[slot][1]) << 32) + (gsram[slot][2])) & 0xFFFFFFFFFFFF;
-        uint16_t eth_type = gsram[slot][3] >> 16;
-        uint32_t arp_sender_ip = gsram[slot][7];
-        uint32_t arp_target_ip = (gsram[slot][9] << 16) + (gsram[slot][10] >> 16);
-        uint16_t arp_opcode = gsram[slot][5] >> 16;
-
-        if (eth_type == DEF_ETHTYPE_ARP) {
-            if (arp_opcode == DEF_ARPOPC_REQUEST) {
-                if (arp_target_ip == pico_ip_addr) {
-                    arp_packet_gen_10base(tx_buf_arp, eth_src, arp_sender_ip);
-
-                    dma_channel_configure (
-                        dma_ch_10base_t,        // Channel to be configured
-                        &dma_conf_10base_t,     // The configuration we just created
-                        &pio_serdes->txf[0],    // Destination address
-                        tx_buf_arp,             // Source address
-                        (DEF_ARP_BUF_SIZE+1),   // Number of transfers
-                        true                    // Start yet
-                    );
-                    dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
-                    _clear_nflp_timer_cnt();
-#if UART_EBG_EN
-                    printf("[ARP] Who has %d.%d.%d.%d? ", (arp_target_ip >> 24), (arp_target_ip >> 16) & 0xFF, (arp_target_ip >> 8) & 0xFF, (arp_target_ip & 0xFF));
-                    printf("Tell %d.%d.%d.%d \r\n", (arp_sender_ip >> 24), (arp_sender_ip >> 16) & 0xFF, (arp_sender_ip >> 8) & 0xFF, (arp_sender_ip & 0xFF));
-#endif
-                }
-            }
-        } else if (eth_type == DEF_ETHTYPE_IPV4) {
-            uint16_t ip_len = gsram[slot][4] >> 16;
-            uint16_t ip_identification = gsram[slot][4] & 0xFFFF;
-            uint8_t ip_ttl = (gsram[slot][5] >> 8) & 0xFF;
-            uint8_t ip_protocol = gsram[slot][5] & 0xFF;
-            uint32_t ip_src_adr = (gsram[slot][6] << 16) + (gsram[slot][7] >> 16);
-            uint32_t ip_dst_adr = (gsram[slot][7] << 16) + (gsram[slot][8] >> 16);
-
-            if ((ip_protocol == DEF_IP_PROTOCOL_ICMP) && (ip_len < 1500)) {
-                // ICMP Echo test
-                uint32_t icmp_tx_size = icmp_packet_gen_10base(tx_buf_icmp, gsram[slot]);
+    if (eth_type == DEF_ETHTYPE_ARP) {
+        if (arp_opcode == DEF_ARPOPC_REQUEST) {
+            if (arp_target_ip == pico_ip_addr) {
+                arp_packet_gen_10base(tx_buf_arp, eth_src, arp_sender_ip);
 
                 dma_channel_configure (
                     dma_ch_10base_t,        // Channel to be configured
                     &dma_conf_10base_t,     // The configuration we just created
                     &pio_serdes->txf[0],    // Destination address
-                    tx_buf_icmp,            // Source address
-                    icmp_tx_size,           // Number of transfers
+                    tx_buf_arp,             // Source address
+                    (DEF_ARP_BUF_SIZE+1),   // Number of transfers
                     true                    // Start yet
                 );
                 dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
                 _clear_nflp_timer_cnt();
 #if UART_EBG_EN
-                printf("[ICMP] src:%d.%d.%d.%d ", (ip_src_adr >> 24), (ip_src_adr >> 16) & 0xFF, (ip_src_adr >> 8) & 0xFF, (ip_src_adr & 0xFF));
-                printf("dst:%d.%d.%d.%d ", (ip_dst_adr >> 24), (ip_dst_adr >> 16) & 0xFF, (ip_dst_adr >> 8) & 0xFF, (ip_dst_adr & 0xFF));
-                printf("ipv4_len:%d \r\n", ip_len);
+                printf("[ARP] Who has %d.%d.%d.%d? ", (arp_target_ip >> 24), (arp_target_ip >> 16) & 0xFF, (arp_target_ip >> 8) & 0xFF, (arp_target_ip & 0xFF));
+                printf("Tell %d.%d.%d.%d \r\n", (arp_sender_ip >> 24), (arp_sender_ip >> 16) & 0xFF, (arp_sender_ip >> 8) & 0xFF, (arp_sender_ip & 0xFF));
 #endif
             }
         }
-    }
-    else
-    {
-        // Send dummy udp packet
-        _send_udp();
-    }
+    } else if (eth_type == DEF_ETHTYPE_IPV4) {
+        uint16_t ip_len = gsram[slot][4] >> 16;
+        uint16_t ip_identification = gsram[slot][4] & 0xFFFF;
+        uint8_t ip_ttl = (gsram[slot][5] >> 8) & 0xFF;
+        uint8_t ip_protocol = gsram[slot][5] & 0xFF;
+        uint32_t ip_src_adr = (gsram[slot][6] << 16) + (gsram[slot][7] >> 16);
+        uint32_t ip_dst_adr = (gsram[slot][7] << 16) + (gsram[slot][8] >> 16);
 
-    // Busy LED Pulse width = 25ms
-    if ((time_us_32() - st_time) > 25000) {
-        gpio_put(HW_PINNUM_LED_G, false);
-    }
-}
+        if ((ip_protocol == DEF_IP_PROTOCOL_ICMP) && (ip_len < 1500)) {
+            // ICMP Echo test
+            uint32_t icmp_tx_size = icmp_packet_gen_10base(tx_buf_icmp, gsram[slot]);
 
-// NLP/FLP Interval timer clear
-void _clear_nflp_timer_cnt(void) {
-    time_nflp = time_us_32();
-}
-
-// Send Link Pulse
-bool _send_link_pulse(void) {
-    uint32_t time_now = time_us_32();
-    bool ret = false;
-
-    if ((time_now - time_nflp) > DEF_NFLP_INTERVAL_US) {
-        time_nflp = time_now;
-        ret = true;
-
-#if DEF_10BASET_FULL_EN
-        _send_flp(0x8602);  // 10BASE-T Full, ACK = 1
-#else
-        _send_nlp();
+            dma_channel_configure (
+                dma_ch_10base_t,        // Channel to be configured
+                &dma_conf_10base_t,     // The configuration we just created
+                &pio_serdes->txf[0],    // Destination address
+                tx_buf_icmp,            // Source address
+                icmp_tx_size,           // Number of transfers
+                true                    // Start yet
+            );
+            dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
+            _clear_nflp_timer_cnt();
+#if UART_EBG_EN
+            printf("[ICMP] src:%d.%d.%d.%d ", (ip_src_adr >> 24), (ip_src_adr >> 16) & 0xFF, (ip_src_adr >> 8) & 0xFF, (ip_src_adr & 0xFF));
+            printf("dst:%d.%d.%d.%d ", (ip_dst_adr >> 24), (ip_dst_adr >> 16) & 0xFF, (ip_dst_adr >> 8) & 0xFF, (ip_dst_adr & 0xFF));
+            printf("ipv4_len:%d \r\n", ip_len);
 #endif
-    }
-
-    return ret;
-}
-
-// NLP
-void _send_nlp(void) {
-    ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
-}
-
-
-// FLP
-void _send_flp(uint16_t data) {
-    for (int i = 0; i < 16; i++) {
-        // Clock
-        ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
-        sleep_us(62);
-        // Data
-        if ((data << i) & 0x8000) {
-            ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
         }
-        sleep_us(62);
     }
-    ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
 }
 
 
@@ -284,8 +227,70 @@ bool _send_udp(void) {
 }
 
 
+// Ethernet Busy LED
+void _busy_led_update(bool led_on) {
+    static uint32_t st_time = 0;
+    uint32_t time_now = time_us_32();
+
+    if (led_on) {
+        // Busy LED Pulse Period = 50ms(min)
+        if ((time_now - st_time) > 50000) {
+            gpio_put(HW_PINNUM_LED_G, true);
+            st_time = time_now;
+        }
+    } else {
+        // Busy LED Pulse width = 25ms
+        if ((time_now - st_time) > 25000) {
+            gpio_put(HW_PINNUM_LED_G, false);
+        }
+    }
+}
+
+
+// NLP/FLP Interval timer clear
+void _clear_nflp_timer_cnt(void) {
+    time_nflp = time_us_32();
+}
+
+// Send Link Pulse
+bool _send_link_pulse(void) {
+    uint32_t time_now = time_us_32();
+    bool ret = false;
+
+    if ((time_now - time_nflp) > DEF_NFLP_INTERVAL_US) {
+        time_nflp = time_now;
+        ret = true;
+#if DEF_10BASET_FULL_EN
+        _send_flp(0x8602);  // 10BASE-T Full, ACK = 1
+#else
+        _send_nlp();
+#endif
+    }
+
+    return ret;
+}
+
+// NLP
+void _send_nlp(void) {
+    ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
+}
+
+// FLP
+void _send_flp(uint16_t data) {
+    for (int i = 0; i < 16; i++) {
+        ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A); sleep_us(62);   // Clock
+        if ((data << i) & 0x8000) {
+            ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);             // Data
+        }
+        sleep_us(62);
+    }
+    ser_10base_t_tx_10b(pio_serdes, sm_tx, 0x0000000A);
+}
+
+
 // Core1
-static void __time_critical_func(_rx_isr)(void) {
+// Receiving
+static void __time_critical_func(rx_func_core1)(void) {
     uint32_t rx_buf;
     uint32_t rx_buf_old;
     bool sfd_det = false;
@@ -381,6 +386,5 @@ static void __time_critical_func(_rx_isr)(void) {
 #endif
             link_up_old = link_up;
         }
-
     }
 }
