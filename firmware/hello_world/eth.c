@@ -179,7 +179,7 @@ void _rx_packets_proc(void) {
         uint32_t ip_src_adr = (gsram[slot][6] << 16) + (gsram[slot][7] >> 16);
         uint32_t ip_dst_adr = (gsram[slot][7] << 16) + (gsram[slot][8] >> 16);
 
-        if ((ip_protocol == DEF_IP_PROTOCOL_ICMP) && (ip_len < 1500)) {
+        if ((ip_protocol == DEF_IP_PROTOCOL_ICMP) && (ip_dst_adr == pico_ip_addr) && (ip_len < 1500)) {
             // ICMP Echo test
             uint32_t icmp_tx_size = icmp_packet_gen_10base(tx_buf_icmp, gsram[slot]);
 
