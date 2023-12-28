@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.12)
 
+set(target_name Pico-RJ45-Sock_hello_world)
+
 include(pico_sdk_import.cmake)
-project(Pico-RJ45-Sock)
-set(target_name Pico-RJ45-Sock)
+project(${target_name})
 
 pico_sdk_init()
 
@@ -13,6 +14,7 @@ pico_generate_pio_header(${target_name} ${CMAKE_CURRENT_LIST_DIR}/des_10base_t.p
 
 target_sources(${target_name} PRIVATE
     main.c
+    hwinit.c
     eth.c
     udp.c
     arp.c
