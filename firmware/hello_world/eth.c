@@ -164,6 +164,7 @@ void _rx_packets_proc(void) {
                     true                    // Start yet
                 );
                 dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
+                sleep_us(10);   // IFG
                 _clear_nflp_timer_cnt();
 #if UART_EBG_EN
                 printf("[ARP] Who has %d.%d.%d.%d? ", (arp_target_ip >> 24), (arp_target_ip >> 16) & 0xFF, (arp_target_ip >> 8) & 0xFF, (arp_target_ip & 0xFF));
@@ -192,6 +193,7 @@ void _rx_packets_proc(void) {
                 true                    // Start yet
             );
             dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
+            sleep_us(10);   // IFG
             _clear_nflp_timer_cnt();
 #if UART_EBG_EN
             printf("[ICMP] src:%d.%d.%d.%d ", (ip_src_adr >> 24), (ip_src_adr >> 16) & 0xFF, (ip_src_adr >> 8) & 0xFF, (ip_src_adr & 0xFF));
