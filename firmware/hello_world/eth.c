@@ -79,11 +79,6 @@ void eth_init(void) {
     uint offset = pio_add_program(pio_serdes, &ser_10base_t_program);
     ser_10base_t_program_init(pio_serdes, sm_tx, offset, HW_PINNUM_TXN);
 
-    // Wait for Link up....
-    for (uint32_t i = 0; i < 200;) {
-        if (_send_link_pulse()) i++;
-    }
-
     // LED
     gpio_init(HW_PINNUM_LED_G);
     gpio_set_dir(HW_PINNUM_LED_G, GPIO_OUT);
@@ -95,6 +90,11 @@ void eth_init(void) {
     sleep_ms(500);
     gpio_put(HW_PINNUM_LED_G, false);
     gpio_put(HW_PINNUM_LED_Y, false);
+
+    // Wait for Link up....
+    for (uint32_t i = 0; i < 200;) {
+        if (_send_link_pulse()) i++;
+    }
     
     // RX
     gpio_init(HW_PINNUM_RXP);   gpio_set_dir(HW_PINNUM_RXP, GPIO_IN);       // Ethernet RX+
@@ -188,7 +188,7 @@ void _rx_packets_proc(void) {
                 &dma_conf_10base_t,     // The configuration we just created
                 &pio_serdes->txf[0],    // Destination address
                 tx_buf_icmp,            // Source address
-                icmp_tx_size,           // Number of transfers
+                icmp_tx_size + 1,       // Number of transfers. "+ 1" is TP_IDL
                 true                    // Start yet
             );
             dma_channel_wait_for_finish_blocking(dma_ch_10base_t);
