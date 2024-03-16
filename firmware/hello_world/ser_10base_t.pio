@@ -25,9 +25,9 @@
         pio_gpio_init(pio, pin_tx);
         pio_gpio_init(pio, pin_tx + 1);
 
-        // gpio_set_drive_strength(pin_tx, GPIO_DRIVE_STRENGTH_12MA);
+        gpio_set_drive_strength(pin_tx, GPIO_DRIVE_STRENGTH_12MA);
         // gpio_set_slew_rate(pin_tx, GPIO_SLEW_RATE_FAST);
-        // gpio_set_drive_strength(pin_tx + 1, GPIO_DRIVE_STRENGTH_12MA);
+        gpio_set_drive_strength(pin_tx + 1, GPIO_DRIVE_STRENGTH_12MA);
         // gpio_set_slew_rate(pin_tx + 1, GPIO_SLEW_RATE_FAST);
 
         pio_sm_config c = ser_10base_t_program_get_default_config(offset);
