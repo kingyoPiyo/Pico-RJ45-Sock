@@ -61,7 +61,6 @@ static uint32_t tx_buf_udp[DEF_UDP_BUF_SIZE+1] = {0};
 static uint32_t dma_ch_100base_fx;
 
 static uint8_t sel = 0;
-static uint32_t flg = 0;
 
 typedef struct {
     T_VBAN_HEADER header;
@@ -71,7 +70,10 @@ typedef struct {
 static vban_payload_t vban_payload;
 
 // ADC Buffer
-static int16_t adc_buf[2][DEF_VBAN_PCM_SIZE/2];
+#define DEF_BUF_NUM     (32)    // リングバッファサイズ
+static uint32_t buf_wp = 0;     // 書き込みポインタ
+static uint32_t buf_rp = 0;     // 読み出しポインタ
+static int16_t adc_buf[DEF_BUF_NUM][DEF_VBAN_PCM_SIZE/2];
 
 
 // ADC Conversion Interrupt
@@ -101,19 +103,17 @@ static void __time_critical_func(adc_irq_handler) (void)
             l_tmp += adc_fifo_get(); os++; break;
         case 7:
             r_tmp += adc_fifo_get(); os = 0;
-            adc_buf[sel][lp++] = (l_tmp - 8192) * 2;
-            adc_buf[sel][lp++] = (r_tmp - 8192) * 2;
+            adc_buf[buf_wp][lp++] = (l_tmp - 8192) * 2;
+            adc_buf[buf_wp][lp++] = (r_tmp - 8192) * 2;
             if (lp == 0) {
-                sel = 1 - sel;
-                flg = 1;
+                buf_wp = (buf_wp + 1) % DEF_BUF_NUM;
             }
             break;
     }
 #else
-    adc_buf[sel][lp++] = (adc_fifo_get() - 2048) * 8;
+    adc_buf[buf_wp][lp++] = (adc_fifo_get() - 2048) * 8;
     if (lp == 0) {
-        sel = 1 - sel;
-        flg = 1;
+        buf_wp = (buf_wp + 1) % DEF_BUF_NUM;
     }
 #endif
 }
@@ -131,6 +131,9 @@ void vban_init(void)
         vban_payload.header.streamname[i] = stream_name[i];
     }
     vban_payload.header.nuFrame = 0;
+
+    // バッファ初期化
+    buf_wp = buf_rp = 0;
 
     // ADC
     adc_select_input(0);                        // Start is ADC0(L-Ch)
@@ -162,18 +165,21 @@ void vban_init(void)
 
 int vban_main(void)
 {
-    if (flg == 0) return 0;
+    if (buf_wp == buf_rp) return 0;
     
-    flg = 0;
     // Increment VBAN Frame counter
     vban_payload.header.nuFrame++;
 
     // Copy PCM data
     for (uint32_t i = 0; i < (DEF_VBAN_PCM_SIZE/2); i++) {
-        vban_payload.pcm[i] = adc_buf[1-sel][i];
+        vban_payload.pcm[i] = adc_buf[buf_rp][i];
     }
     udp_packet_gen_10base(tx_buf_udp, (uint8_t *)&vban_payload);
     eth_tx_data(tx_buf_udp, DEF_UDP_BUF_SIZE+1);
+
+    buf_rp = (buf_rp + 1) % DEF_BUF_NUM;
+
+
 
     return 1;
 }
