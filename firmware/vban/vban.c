@@ -5,6 +5,7 @@
 * Note     : ADC0 -- Audio L-Ch
              ADC1 -- Audio R-Ch
 ********************************************************/
+#include <stdlib.h>
 #include "vban.h"
 #include "udp.h"
 #include "eth.h"
@@ -103,8 +104,8 @@ static void __time_critical_func(adc_irq_handler) (void)
             l_tmp += adc_fifo_get(); os++; break;
         case 7:
             r_tmp += adc_fifo_get(); os = 0;
-            adc_buf[buf_wp][lp++] = (l_tmp - 8192) * 2;
-            adc_buf[buf_wp][lp++] = (r_tmp - 8192) * 2;
+            adc_buf[buf_wp][lp++] = (l_tmp - 8192) * 4;
+            adc_buf[buf_wp][lp++] = (r_tmp - 8192) * 4;
             if (lp == 0) {
                 buf_wp = (buf_wp + 1) % DEF_BUF_NUM;
             }
@@ -163,8 +164,11 @@ void vban_init(void)
     adc_run(true);  // ADC Free running start!
 }
 
-int vban_main(void)
+uint32_t vban_main(uint8_t *lv_l, uint8_t *lv_r, bool max_rst)
 {
+    static uint32_t tmp_l = 0, tmp_r = 0;
+
+    if (max_rst) { tmp_l = 0; tmp_r = 0; }
     if (buf_wp == buf_rp) return 0;
     
     // Increment VBAN Frame counter
@@ -173,13 +177,21 @@ int vban_main(void)
     // Copy PCM data
     for (uint32_t i = 0; i < (DEF_VBAN_PCM_SIZE/2); i++) {
         vban_payload.pcm[i] = adc_buf[buf_rp][i];
+        // For Level Meter, Max hold
+        if (i & 0x01) {
+            if (abs(adc_buf[buf_rp][i]) > tmp_r) tmp_r = abs(adc_buf[buf_rp][i]); // R
+        } else {
+            if (abs(adc_buf[buf_rp][i]) > tmp_l) tmp_l = abs(adc_buf[buf_rp][i]); // L
+        }
     }
     udp_packet_gen_10base(tx_buf_udp, (uint8_t *)&vban_payload);
     eth_tx_data(tx_buf_udp, DEF_UDP_BUF_SIZE+1);
-
     buf_rp = (buf_rp + 1) % DEF_BUF_NUM;
 
-
+    // 暫定
+    // ((4095 * 4) - 8192) * 4 / 120
+    *lv_l = (uint8_t)(tmp_l / 273);
+    *lv_r = (uint8_t)(tmp_r / 273);
 
     return 1;
 }

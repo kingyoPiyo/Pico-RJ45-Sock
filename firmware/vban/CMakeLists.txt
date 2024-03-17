@@ -20,6 +20,7 @@ target_sources(${target_name} PRIVATE
     arp.c
     icmp.c
     vban.c
+    oled.c
     )
 
 target_link_libraries(${target_name} PRIVATE
@@ -29,6 +30,7 @@ target_link_libraries(${target_name} PRIVATE
     hardware_dma
     pico_multicore
     hardware_adc
+    hardware_i2c
     )
 
 # enable usb output, disable uart output

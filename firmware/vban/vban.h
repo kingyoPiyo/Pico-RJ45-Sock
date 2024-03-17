@@ -8,6 +8,7 @@
 #define __VBAN_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #define DEF_VBAN_HEAD_SIZE      (28)
 #define DEF_VBAN_PCM_SIZE       (512)
@@ -27,6 +28,6 @@ struct tagVBAN_HEADER
 typedef struct tagVBAN_HEADER T_VBAN_HEADER;
 
 void vban_init(void);
-int vban_main(void);
+uint32_t vban_main(uint8_t *lv_l, uint8_t *lv_r, bool max_rst);
 
 #endif //__VBAN_H__

@@ -28,5 +28,7 @@
 #define DEF_SYS_HWPIN_ADC0      (26)
 #define DEF_SYS_HWPIN_ADC1      (27)
 #define DEF_SYS_HWPIN_DCDC_PS   (23)
+#define DEF_SYS_HWPIN_OLED_SCL  (11)
+#define DEF_SYS_HWPIN_OLED_SDA  (10)
 
 #endif //__SYSTEM_H__

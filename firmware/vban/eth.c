@@ -87,7 +87,7 @@ void eth_init(void) {
 
     gpio_put(HW_PINNUM_LED_G, true);
     gpio_put(HW_PINNUM_LED_Y, true);
-    sleep_ms(500);
+    sleep_ms(300);
     gpio_put(HW_PINNUM_LED_G, false);
     gpio_put(HW_PINNUM_LED_Y, false);
 
@@ -119,7 +119,9 @@ void eth_init(void) {
 
 
 // RUN at Core0
-void eth_main(void) {    
+uint32_t eth_main(void) {
+    uint32_t ret = 0;
+
     _send_link_pulse();         // Link Pulse
     _busy_led_update(false);    // Busy LED (RJ45)
 
@@ -127,9 +129,12 @@ void eth_main(void) {
     if (multicore_fifo_rvalid()) {
         _rx_packets_proc();
         _busy_led_update(true);
+        ret = 1;
     } else {
         // _send_udp();
     }
+
+    return ret;
 }
 
 
