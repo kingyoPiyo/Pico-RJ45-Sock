@@ -18,7 +18,7 @@ See also : [Pico-10BASE-T](https://github.com/kingyoPiyo/Pico-10BASE-T "Pico-10B
 | Link | Description |
 | ---- | ---- |
 | [Hello World](firmware/hello_world/ "hello_world") | ARP, UDP, ICMP Test.<br>Change *system.h* for connection settings.|
-| [VBAN](firmware/vban/ "vban") | ARP, UDP, ICMP & VBAN Audio Streaming from ADC0, ADC1.<br>Change *system.h* for connection settings.|
+| [VBAN](firmware/vban/ "vban") | ARP, UDP, ICMP & VBAN Audio Streaming from ADC0, ADC1.<br>Change *system.h* for connection settings.<br>Please refer [here](doc/vban_preamp/VBAN_PreAmp.png "VBAN_PreAmp.png") for the preamplifier for ADC.|
 
 ## Quick-start
 
