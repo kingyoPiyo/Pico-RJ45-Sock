@@ -1,4 +1,5 @@
 #include "hwinit.h"
+#include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #include "hardware/irq.h"
 #include "hardware/gpio.h"
